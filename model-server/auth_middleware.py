@@ -497,7 +497,16 @@ class AuthHandler(BaseHTTPRequestHandler):
             ip = self.headers.get("X-Real-IP", self.client_address[0])
             uri = self.headers.get("X-Original-URI", "")
 
-            valid, reason = verify_session(session_token, ip, uri)
+            try:
+                valid, reason = verify_session(session_token, ip, uri)
+            except Exception as e:
+                log_file = LOG_DIR / f"auth-{datetime.now().strftime('%Y-%m-%d')}.log"
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now().isoformat()}] VERIFY CRASH: {e}\n")
+                self.send_response(500)
+                self.end_headers()
+                return
+
             if valid:
                 self.send_response(200)
                 self.end_headers()
