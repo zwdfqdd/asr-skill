@@ -1,0 +1,36 @@
+# 模型路径配置
+models:
+  vad: "models/vad"
+  asr: "models/asr"
+  punc: "models/punc"
+
+# VAD 配置
+vad:
+  threshold: 0.5
+  min_speech_ms: 250
+  min_silence_ms: 100
+  speech_pad_ms: 30
+  window_size: 512
+
+# 音频配置
+audio:
+  sample_rate: 16000
+  channels: 1
+
+# Paraformer 特征提取
+features:
+  n_mels: 80
+  frame_length: 25
+  frame_shift: 10
+  window: "hamming"
+
+# 服务配置
+server:
+  host: "0.0.0.0"
+  port: 2701
+
+# 输出配置
+output:
+  include_timestamps: true
+  include_punctuation: true
+  pretty_json: true
