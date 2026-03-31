@@ -508,6 +508,13 @@ class AuthHandler(BaseHTTPRequestHandler):
             ip = self.headers.get("X-Real-IP", self.client_address[0])
             uri = self.headers.get("X-Original-URI", "")
 
+            # Fallback: extract session from URI query param if header is empty
+            if not session_token and uri:
+                from urllib.parse import parse_qs
+                uri_parsed = urlparse(uri)
+                qs = parse_qs(uri_parsed.query)
+                session_token = qs.get("session", [""])[0]
+
             try:
                 valid, reason = verify_session(session_token, ip, uri)
             except Exception as e:
