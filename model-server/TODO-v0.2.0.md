@@ -4,11 +4,11 @@
 
 ### P0 - 核心
 - [x] 外网下载支持：通过 `https://nas.istarshine.com` 反代到 model-server (8080)，已验证通过
-- [ ] nginx `X-Session` header 未正确传递给 auth_request，当前靠 URI query param fallback 兜底，应修复根因
+- [x] nginx `X-Session` header 传递正常，`$arg_session` 已验证通过，URI fallback 保留作为保险
 
 ### P1 - 体验
-- [ ] test_asr.py 中文输出乱码（Windows 控制台编码问题）
-- [ ] download_models.py 缺少失败重试机制（网络抖动直接失败）
+- [x] test_asr.py 中文输出乱码（Windows 控制台编码问题）— 已修复
+- [x] download_models.py 失败重试机制（3 次重试，递增等待）— 已实现
 - [ ] session 续期：大文件下载超 30min 自动延长 TTL
 
 ### P2 - 增强
