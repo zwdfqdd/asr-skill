@@ -95,6 +95,7 @@ def init_db():
             bandwidth     INTEGER DEFAULT 0,
             machine_fp    TEXT DEFAULT '',
             max_machines  INTEGER DEFAULT 1,
+            webhook_url   TEXT DEFAULT '',
             active        INTEGER DEFAULT 1
         )
     """)
@@ -157,6 +158,8 @@ def init_db():
     lk_cols = {row[1] for row in conn.execute("PRAGMA table_info(license_keys)").fetchall()}
     if "max_machines" not in lk_cols:
         conn.execute("ALTER TABLE license_keys ADD COLUMN max_machines INTEGER DEFAULT 1")
+    if "webhook_url" not in lk_cols:
+        conn.execute("ALTER TABLE license_keys ADD COLUMN webhook_url TEXT DEFAULT ''")
 
     conn.commit()
     conn.close()
@@ -165,6 +168,39 @@ def init_db():
 def hash_key(key):
     """SHA-256 hash for storage (never store plaintext)."""
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+# ─── Webhook ───
+
+def _send_webhook(webhook_url, payload):
+    """Fire-and-forget webhook POST. Non-blocking, best-effort."""
+    if not webhook_url:
+        return
+    import threading
+
+    def _do_send():
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url, data=data,
+                headers={"Content-Type": "application/json", "User-Agent": "ModelAuth/1.0"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass  # best-effort, don't crash
+
+    threading.Thread(target=_do_send, daemon=True).start()
+
+
+def _get_webhook_url(key_h):
+    """Get webhook URL for a license key."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT webhook_url FROM license_keys WHERE key_hash = ?", (key_h,)
+    ).fetchone()
+    conn.close()
+    return (row[0] or "") if row else ""
 
 
 # ─── Manifest ───
@@ -215,7 +251,7 @@ def get_manifest():
 def create_license_key(label="", max_downloads=DEFAULT_MAX_DOWNLOADS,
                        max_bandwidth=DEFAULT_MAX_BANDWIDTH,
                        expire_days=DEFAULT_EXPIRE_DAYS,
-                       max_machines=1):
+                       max_machines=1, webhook_url=""):
     """Create a new license key. Returns the plaintext key (show once)."""
     key = secrets.token_hex(32)
     key_h = hash_key(key)
@@ -226,9 +262,10 @@ def create_license_key(label="", max_downloads=DEFAULT_MAX_DOWNLOADS,
         conn = get_db()
         conn.execute(
             "INSERT INTO license_keys (key_hash, key_prefix, label, created_at, "
-            "expires_at, max_downloads, max_bandwidth, max_machines) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (key_h, key[:8], label, now, expires, max_downloads, max_bandwidth, max_machines)
+            "expires_at, max_downloads, max_bandwidth, max_machines, webhook_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (key_h, key[:8], label, now, expires, max_downloads, max_bandwidth,
+             max_machines, webhook_url)
         )
         conn.commit()
         conn.close()
@@ -458,15 +495,34 @@ def verify_session(session_token, ip="", uri=""):
 
 
 def complete_session(session_token):
-    """Mark session as completed and revoke it."""
+    """Mark session as completed and fire webhook if configured."""
     with _db_lock:
         conn = get_db()
+        row = conn.execute(
+            "SELECT key_hash, machine_fp, files_total, files_downloaded, created_at "
+            "FROM sessions WHERE session_token = ? AND status = 'active'",
+            (session_token,)
+        ).fetchone()
         conn.execute(
             "UPDATE sessions SET status = 'completed' WHERE session_token = ? AND status = 'active'",
             (session_token,)
         )
         conn.commit()
         conn.close()
+
+    # Fire webhook
+    if row:
+        key_h = row[0]
+        webhook_url = _get_webhook_url(key_h)
+        if webhook_url:
+            _send_webhook(webhook_url, {
+                "event": "session.completed",
+                "key_prefix": key_h[:8],
+                "machine_fp": row[1],
+                "files_total": row[2],
+                "files_downloaded": row[3],
+                "duration_s": round(time.time() - row[4], 1),
+            })
 
 
 def cleanup_expired_sessions():
@@ -772,10 +828,12 @@ class AuthHandler(BaseHTTPRequestHandler):
                 max_bandwidth=data.get("max_bandwidth", DEFAULT_MAX_BANDWIDTH),
                 expire_days=data.get("expire_days", DEFAULT_EXPIRE_DAYS),
                 max_machines=data.get("max_machines", 1),
+                webhook_url=data.get("webhook_url", ""),
             )
             self._json_response(200, {
                 "license_key": key,
                 "max_machines": data.get("max_machines", 1),
+                "webhook_url": data.get("webhook_url", ""),
                 "message": "Save this key - it cannot be retrieved later",
             })
 
