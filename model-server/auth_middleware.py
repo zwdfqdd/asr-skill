@@ -94,6 +94,7 @@ def init_db():
             downloads     INTEGER DEFAULT 0,
             bandwidth     INTEGER DEFAULT 0,
             machine_fp    TEXT DEFAULT '',
+            max_machines  INTEGER DEFAULT 1,
             active        INTEGER DEFAULT 1
         )
     """)
@@ -143,7 +144,6 @@ def init_db():
     """)
 
     # ─── Schema migrations ───
-    # Add missing columns to download_log (upgrade from v1)
     existing = {row[1] for row in conn.execute("PRAGMA table_info(download_log)").fetchall()}
     for col, typedef in [
         ("key_hash", "TEXT DEFAULT ''"),
@@ -152,6 +152,11 @@ def init_db():
     ]:
         if col not in existing:
             conn.execute(f"ALTER TABLE download_log ADD COLUMN {col} {typedef}")
+
+    # Migrate license_keys: add max_machines column
+    lk_cols = {row[1] for row in conn.execute("PRAGMA table_info(license_keys)").fetchall()}
+    if "max_machines" not in lk_cols:
+        conn.execute("ALTER TABLE license_keys ADD COLUMN max_machines INTEGER DEFAULT 1")
 
     conn.commit()
     conn.close()
@@ -209,7 +214,8 @@ def get_manifest():
 
 def create_license_key(label="", max_downloads=DEFAULT_MAX_DOWNLOADS,
                        max_bandwidth=DEFAULT_MAX_BANDWIDTH,
-                       expire_days=DEFAULT_EXPIRE_DAYS):
+                       expire_days=DEFAULT_EXPIRE_DAYS,
+                       max_machines=1):
     """Create a new license key. Returns the plaintext key (show once)."""
     key = secrets.token_hex(32)
     key_h = hash_key(key)
@@ -220,9 +226,9 @@ def create_license_key(label="", max_downloads=DEFAULT_MAX_DOWNLOADS,
         conn = get_db()
         conn.execute(
             "INSERT INTO license_keys (key_hash, key_prefix, label, created_at, "
-            "expires_at, max_downloads, max_bandwidth) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (key_h, key[:8], label, now, expires, max_downloads, max_bandwidth)
+            "expires_at, max_downloads, max_bandwidth, max_machines) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key_h, key[:8], label, now, expires, max_downloads, max_bandwidth, max_machines)
         )
         conn.commit()
         conn.close()
@@ -262,19 +268,25 @@ def validate_license_key(key):
 
 def bind_machine(key_h, machine_fp):
     """Bind or verify machine fingerprint for a license key.
-    First call binds; subsequent calls must match."""
+    Supports multiple machines (comma-separated, up to max_machines)."""
     conn = get_db()
     row = conn.execute(
-        "SELECT machine_fp FROM license_keys WHERE key_hash = ?", (key_h,)
+        "SELECT machine_fp, max_machines FROM license_keys WHERE key_hash = ?", (key_h,)
     ).fetchone()
 
     if not row:
         conn.close()
         return False, "key not found"
 
-    bound_fp = row[0]
+    bound_fp_str = row[0] or ""
+    max_machines = row[1] if row[1] is not None else 1
+    bound_fps = [fp.strip() for fp in bound_fp_str.split(",") if fp.strip()]
 
-    if not bound_fp:
+    if machine_fp in bound_fps:
+        conn.close()
+        return True, "matched"
+
+    if not bound_fps:
         # First use — bind this machine
         with _db_lock:
             conn.execute(
@@ -284,12 +296,22 @@ def bind_machine(key_h, machine_fp):
             conn.commit()
         conn.close()
         return True, "bound"
-    elif bound_fp == machine_fp:
+
+    if len(bound_fps) < max_machines:
+        # Add new machine
+        bound_fps.append(machine_fp)
+        new_fp_str = ",".join(bound_fps)
+        with _db_lock:
+            conn.execute(
+                "UPDATE license_keys SET machine_fp = ? WHERE key_hash = ?",
+                (new_fp_str, key_h)
+            )
+            conn.commit()
         conn.close()
-        return True, "matched"
-    else:
-        conn.close()
-        return False, "machine mismatch"
+        return True, f"bound ({len(bound_fps)}/{max_machines})"
+
+    conn.close()
+    return False, "machine mismatch"
 
 
 def revoke_license_key(key):
@@ -749,9 +771,11 @@ class AuthHandler(BaseHTTPRequestHandler):
                 max_downloads=data.get("max_downloads", DEFAULT_MAX_DOWNLOADS),
                 max_bandwidth=data.get("max_bandwidth", DEFAULT_MAX_BANDWIDTH),
                 expire_days=data.get("expire_days", DEFAULT_EXPIRE_DAYS),
+                max_machines=data.get("max_machines", 1),
             )
             self._json_response(200, {
                 "license_key": key,
+                "max_machines": data.get("max_machines", 1),
                 "message": "Save this key - it cannot be retrieved later",
             })
 
