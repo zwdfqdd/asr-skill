@@ -132,7 +132,7 @@ python download_models.py --license-key <key> --endpoint https://nas.istarshine.
 # 列出所有 license key
 python3 auth_middleware.py list-tokens
 
-# 吊 license key
+# 吊销 license key
 python3 auth_middleware.py revoke <key>
 
 # API: 查看 keys
@@ -146,6 +146,18 @@ curl -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8901/admin/stats
 
 # API: 查看当前 manifest
 curl -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8901/admin/manifest
+
+# API: 解绑机器（用户换机器后）
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"key_prefix":"a1b2c3d4"}' \
+     http://127.0.0.1:8901/admin/tokens/unbind
+
+# API: 重置下载/带宽配额
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"key_prefix":"a1b2c3d4"}' \
+     http://127.0.0.1:8901/admin/tokens/reset-quota
 ```
 
 ## 文件说明
