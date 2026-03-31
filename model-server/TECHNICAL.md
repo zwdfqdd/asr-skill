@@ -21,9 +21,6 @@
 │   ├── /api/session/*    →  proxy → auth_middleware (8901)        │
 │   ├── /files/*          →  auth_request /verify → 静态文件       │
 │   ├── /admin/*          →  localhost only → auth_middleware      │
-│   ├── /transcribe       →  proxy → asr_server (2701)            │
-│   ├── /transcribe/base64→  proxy → asr_server (2701)            │
-│   ├── /health           →  proxy → asr_server (2701)            │
 │   └── /auth_verify      →  internal subrequest                  │
 │                                                                  │
 │   auth_middleware.py (port 8901)                                 │
@@ -32,12 +29,6 @@
 │   ├── session_files 表  →  单文件下载追踪                        │
 │   ├── download_log 表   →  审计日志                              │
 │   └── manifest 生成     →  扫描 MODEL_FILES_ROOT                 │
-│                                                                  │
-│   asr_server.py (port 2701)                                      │
-│   ├── POST /transcribe          →  multipart 音频文件上传        │
-│   ├── POST /transcribe/base64   →  JSON base64 音频              │
-│   ├── GET  /health              →  健康检查                      │
-│   └── Pipeline: VAD → ASR → Punc (ONNX Runtime)                 │
 │                                                                  │
 │   /home/zhxg/zw/data/models      →  模型原始文件 (明文)          │
 └──────────────────────────────────────────────────────────────────┘
@@ -268,7 +259,6 @@ admin 接口限 localhost
 |------|-----|------|
 | `model_download` | `10r/m burst=5` | 文件下载限流 |
 | `session_api` | `3r/m burst=2` | session API 限流 |
-| `asr_api` | `30r/m burst=10` | ASR 推理 API 限流 |
 | `model_conn` | `3` | 最大并发连接 |
 
 ### 5.4 客户端 license.json
@@ -443,29 +433,16 @@ SQLite，文件 `auth.db`，WAL 模式。
 
 ```bash
 cd model-server
-
-# 部署 auth 中间件 (模型下载鉴权)
 chmod +x deploy.sh
 ./deploy.sh
-
-# 部署 ASR 推理服务
-chmod +x deploy_asr_service.sh
-./deploy_asr_service.sh
 ```
 
-`deploy.sh` 自动完成：
+脚本自动完成：
 1. 复制文件到 `/opt/model-auth/`
 2. 生成 `MODEL_ADMIN_KEY`
 3. 创建 systemd 服务 `model-auth`
 4. 安装 nginx 配置
 5. 生成首个 license key
-
-`deploy_asr_service.sh` 自动完成：
-1. 安装 Python 依赖 (onnxruntime, numpy, pyyaml, soundfile, websockets, cryptography)
-2. 复制 ASR 脚本到 `/opt/asr-inference/`
-3. 生成服务端 `asr_config.yaml` (模型路径指向 `/home/zhxg/zw/data/models`)
-4. 创建 systemd 服务 `asr-inference`
-5. 验证服务健康状态
 
 ### 8.3 手动部署
 
@@ -494,15 +471,10 @@ nginx -t && systemctl reload nginx
 ### 8.4 systemd 服务管理
 
 ```bash
-# Auth 中间件
-sudo systemctl status model-auth
-sudo systemctl restart model-auth
-journalctl -u model-auth -f
-
-# ASR 推理服务
-sudo systemctl status asr-inference
-sudo systemctl restart asr-inference
-journalctl -u asr-inference -f
+sudo systemctl status model-auth     # 查看状态
+sudo systemctl restart model-auth    # 重启
+sudo systemctl stop model-auth       # 停止
+journalctl -u model-auth -f          # 实时日志
 ```
 
 ### 8.5 nginx 配置检查
@@ -619,22 +591,11 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 ```
 model-server/
-├── auth_middleware.py       # 鉴权中间件 (license + session + manifest)
-├── nginx.conf               # nginx 反代配置 (auth + ASR 代理 + rate limit)
-├── deploy.sh                # 一键部署 auth 中间件
-├── deploy_asr_service.sh    # 一键部署 ASR 推理服务
-├── assets/
-│   └── asr_config.yaml      # ASR 推理默认配置
-├── scripts/
-│   ├── asr_server.py        # ASR HTTP/WebSocket 服务
-│   ├── asr_tools.py         # ASR CLI (transcribe / batch / server)
-│   ├── paraformer_onnx.py   # Paraformer 语音识别 ONNX 推理
-│   ├── vad_onnx.py          # Silero VAD 语音活动检测
-│   ├── punc_onnx.py         # 标点恢复 ONNX 推理
-│   ├── model_crypto.py      # 模型加密/解密工具
-│   └── test_asr.py          # 管线自测脚本
-├── README.md                # 快速上手文档
-└── TECHNICAL.md             # 本文件
+├── auth_middleware.py    # 鉴权中间件 (license + session + manifest)
+├── nginx.conf            # nginx 反代配置 (auth + rate limit)
+├── deploy.sh             # 一键部署脚本
+├── README.md             # 快速上手文档
+└── TECHNICAL.md          # 本文件
 
 asr_istarshine_v1/           # 客户端 skill (用户机器)
 ├── scripts/

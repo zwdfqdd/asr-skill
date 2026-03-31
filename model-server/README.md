@@ -152,22 +152,11 @@ curl -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8901/admin/manifest
 
 ```
 model-server/
-├── auth_middleware.py       # 鉴权中间件（license + session + manifest）
-├── nginx.conf               # nginx 配置（auth + ASR 代理 + rate limit）
-├── deploy.sh                # 一键部署 auth 中间件
-├── deploy_asr_service.sh    # 一键部署 ASR 推理服务
-├── assets/
-│   └── asr_config.yaml      # ASR 推理默认配置
-├── scripts/
-│   ├── asr_server.py        # ASR HTTP/WebSocket 服务
-│   ├── asr_tools.py         # ASR CLI（transcribe / batch / server）
-│   ├── paraformer_onnx.py   # Paraformer 语音识别 ONNX 推理
-│   ├── vad_onnx.py          # Silero VAD 语音活动检测
-│   ├── punc_onnx.py         # 标点恢复 ONNX 推理
-│   ├── model_crypto.py      # 模型加密/解密工具
-│   └── test_asr.py          # 管线自测脚本
-├── README.md                # 本文件
-└── TECHNICAL.md             # 详细技术文档
+├── auth_middleware.py    # 鉴权中间件（license + session + manifest）
+├── nginx.conf           # nginx 配置（auth + rate limit）
+├── deploy.sh            # 一键部署脚本
+├── README.md            # 本文件
+└── TECHNICAL.md         # 详细技术文档
 ```
 
 ## 注意事项
@@ -179,39 +168,3 @@ model-server/
 - `max_downloads` 现在计数的是"下载会话次数"，不是单个文件
 - `auth.db` 是 SQLite 数据库，定期备份
 - 日志在 `logs/` 目录，按天分割
-
-## ASR 推理服务
-
-部署 auth 中间件后，可额外部署 ASR 推理服务，提供 HTTP 语音识别 API。
-
-### 部署
-
-```bash
-chmod +x deploy_asr_service.sh
-./deploy_asr_service.sh
-```
-
-自动安装依赖、复制脚本、生成配置、创建 systemd 服务。
-
-### API
-
-```bash
-# 健康检查
-curl http://192.168.223.5:8080/health
-
-# 上传音频文件转写
-curl -X POST -F 'file=@test.wav' http://192.168.223.5:8080/transcribe
-
-# base64 方式
-curl -X POST -H 'Content-Type: application/json' \
-     -d '{"audio":"<base64>","format":"wav"}' \
-     http://192.168.223.5:8080/transcribe/base64
-```
-
-### 服务管理
-
-```bash
-sudo systemctl status asr-inference
-sudo systemctl restart asr-inference
-journalctl -u asr-inference -f
-```
