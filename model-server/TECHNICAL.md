@@ -407,6 +407,8 @@ SQLite，文件 `auth.db`，WAL 模式。
 | GET | /admin/manifest | 当前文件清单 |
 | POST | /admin/tokens/create | 创建 license key |
 | POST | /admin/tokens/revoke | 吊销 license key |
+| POST | /admin/tokens/unbind | 解绑机器指纹 |
+| POST | /admin/tokens/reset-quota | 重置下载/带宽配额 |
 
 创建 license key：
 ```json
@@ -415,6 +417,20 @@ SQLite，文件 `auth.db`，WAL 模式。
     "max_downloads": 50,
     "max_bandwidth": 10737418240,
     "expire_days": 90
+}
+```
+
+解绑机器：
+```json
+{"key_prefix": "a1b2c3d4"}
+```
+
+重置配额：
+```json
+{
+    "key_prefix": "a1b2c3d4",
+    "reset_downloads": true,
+    "reset_bandwidth": true
 }
 ```
 
@@ -541,7 +557,7 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 **客户端报 "machine mismatch"**
 - 用户换了机器，或重装了系统导致指纹变化
-- 解决：管理员清除绑定 `sqlite3 auth.db "UPDATE license_keys SET machine_fp='' WHERE key_prefix='xxxx'"`
+- 解决：`curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" -d '{"key_prefix":"xxxx"}' http://127.0.0.1:8901/admin/tokens/unbind`
 
 **客户端报 "session expired"**
 - 下载时间超过 30 分钟（大文件 + 慢网络）
@@ -549,7 +565,7 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 **客户端报 "download limit reached"**
 - license key 的 `max_downloads` 已用完
-- 解决：创建新 key，或 `sqlite3 auth.db "UPDATE license_keys SET downloads=0 WHERE key_prefix='xxxx'"`
+- 解决：`curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" -d '{"key_prefix":"xxxx"}' http://127.0.0.1:8901/admin/tokens/reset-quota`
 
 **nginx 返回 403 但 middleware 日志无记录**
 - nginx rate limit 触发（非 auth 拒绝）
@@ -577,8 +593,8 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 | 方向 | 说明 | 优先级 |
 |------|------|--------|
-| admin API: 解绑机器 | `POST /admin/tokens/unbind` 清除 machine_fp | 高 |
-| admin API: 重置配额 | `POST /admin/tokens/reset-quota` | 高 |
+| admin API: 解绑机器 | `POST /admin/tokens/unbind` 清除 machine_fp | ✅ 已实现 |
+| admin API: 重置配额 | `POST /admin/tokens/reset-quota` | ✅ 已实现 |
 | session 续期 | 下载大文件时自动延长 TTL | 中 |
 | webhook 通知 | 下载完成/异常时回调 | 中 |
 | 多机器绑定 | 一个 key 允许 N 台机器 | 低 |

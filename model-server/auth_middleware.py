@@ -716,6 +716,57 @@ class AuthHandler(BaseHTTPRequestHandler):
             else:
                 self._json_response(400, {"error": "key required"})
 
+        elif parsed.path == "/admin/tokens/unbind":
+            key_prefix = data.get("key_prefix", "")
+            if not key_prefix:
+                self._json_response(400, {"error": "key_prefix required"})
+                return
+            with _db_lock:
+                conn = get_db()
+                cur = conn.execute(
+                    "UPDATE license_keys SET machine_fp = '' "
+                    "WHERE key_prefix = ? AND active = 1",
+                    (key_prefix,)
+                )
+                conn.commit()
+                affected = cur.rowcount
+                conn.close()
+            if affected:
+                self._json_response(200, {"message": f"machine unbound for {key_prefix}..."})
+            else:
+                self._json_response(404, {"error": f"no active key with prefix {key_prefix}"})
+
+        elif parsed.path == "/admin/tokens/reset-quota":
+            key_prefix = data.get("key_prefix", "")
+            if not key_prefix:
+                self._json_response(400, {"error": "key_prefix required"})
+                return
+            reset_downloads = data.get("reset_downloads", True)
+            reset_bandwidth = data.get("reset_bandwidth", True)
+            with _db_lock:
+                conn = get_db()
+                updates = []
+                if reset_downloads:
+                    updates.append("downloads = 0")
+                if reset_bandwidth:
+                    updates.append("bandwidth = 0")
+                if not updates:
+                    self._json_response(400, {"error": "nothing to reset"})
+                    conn.close()
+                    return
+                cur = conn.execute(
+                    f"UPDATE license_keys SET {', '.join(updates)} "
+                    "WHERE key_prefix = ? AND active = 1",
+                    (key_prefix,)
+                )
+                conn.commit()
+                affected = cur.rowcount
+                conn.close()
+            if affected:
+                self._json_response(200, {"message": f"quota reset for {key_prefix}..."})
+            else:
+                self._json_response(404, {"error": f"no active key with prefix {key_prefix}"})
+
         else:
             self._json_response(404, {"error": "not found"})
 
