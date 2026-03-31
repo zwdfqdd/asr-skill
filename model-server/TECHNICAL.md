@@ -141,7 +141,7 @@ POST /api/session/complete
 绑定逻辑：
 - 首次使用 license_key 时，记录 machine_fp 到数据库
 - 后续使用必须匹配，否则拒绝
-- 一个 license_key 只能绑定一台机器
+- 一个 license_key 只能绑定 `max_machines` 台机器（默认 1，可配置）
 
 **注意**：如果用户需要换机器，管理员需要手动清除绑定（目前需直接操作数据库，后续可加 admin API）。
 
@@ -257,9 +257,9 @@ admin 接口限 localhost
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| `model_download` | `10r/m burst=5` | 文件下载限流 |
+| `model_download` | `30r/m burst=30` | 文件下载限流 |
 | `session_api` | `3r/m burst=2` | session API 限流 |
-| `model_conn` | `3` | 最大并发连接 |
+| `model_conn` | `5` | 最大并发连接 |
 
 ### 5.4 客户端 license.json
 
@@ -416,7 +416,9 @@ SQLite，文件 `auth.db`，WAL 模式。
     "label": "customer1",
     "max_downloads": 50,
     "max_bandwidth": 10737418240,
-    "expire_days": 90
+    "expire_days": 90,
+    "max_machines": 3,
+    "webhook_url": "https://example.com/hook"
 }
 ```
 
@@ -561,7 +563,8 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 **客户端报 "session expired"**
 - 下载时间超过 30 分钟（大文件 + 慢网络）
-- 解决：增大 `SESSION_TTL`，或优化网络
+- v0.2.0 已支持自动续期（每次文件验证成功自动延长 TTL）
+- 如仍超时：增大 `SESSION_TTL`，或优化网络
 
 **客户端报 "download limit reached"**
 - license key 的 `max_downloads` 已用完
@@ -591,15 +594,18 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 ## 11. 扩展方向
 
-| 方向 | 说明 | 优先级 |
-|------|------|--------|
-| admin API: 解绑机器 | `POST /admin/tokens/unbind` 清除 machine_fp | ✅ 已实现 |
-| admin API: 重置配额 | `POST /admin/tokens/reset-quota` | ✅ 已实现 |
-| session 续期 | 下载大文件时自动延长 TTL | 中 |
-| webhook 通知 | 下载完成/异常时回调 | 中 |
-| 多机器绑定 | 一个 key 允许 N 台机器 | 低 |
-| PostgreSQL 支持 | 高并发场景 | 低 |
-| 增量更新 | 只下载变更的文件 | 低 |
+| 方向 | 说明 | 状态 |
+|------|------|------|
+| admin API: 解绑机器 | `POST /admin/tokens/unbind` 清除 machine_fp | ✅ v0.1.0 |
+| admin API: 重置配额 | `POST /admin/tokens/reset-quota` | ✅ v0.1.0 |
+| 外网下载 | 通过 nginx 反代支持外网访问 | ✅ v0.2.0 |
+| session 续期 | 下载大文件时自动延长 TTL | ✅ v0.2.0 |
+| 下载重试 | 失败自动重试 3 次，递增等待 | ✅ v0.2.0 |
+| 断点续传 | Range 请求支持，中断后自动恢复 | ✅ v0.2.0 |
+| 增量更新 | 本地 manifest.json 对比 SHA-256，只下载变更文件 | ✅ v0.2.0 |
+| 多机器绑定 | 一个 key 允许 N 台机器 (max_machines) | ✅ v0.2.0 |
+| webhook 通知 | 下载完成时回调 (session.completed) | ✅ v0.2.0 |
+| PostgreSQL 支持 | 高并发场景 | 待定 |
 
 ---
 
@@ -607,19 +613,23 @@ cp /opt/model-auth/auth.db-wal /backup/   # 如果存在
 
 ```
 model-server/
-├── auth_middleware.py    # 鉴权中间件 (license + session + manifest)
+├── auth_middleware.py    # 鉴权中间件 (license + session + manifest + webhook)
 ├── nginx.conf            # nginx 反代配置 (auth + rate limit)
 ├── deploy.sh             # 一键部署脚本
+├── CHANGELOG.md          # 版本更新日志
+├── TODO-v0.2.0.md        # v0.2.0 开发计划 (已完成)
 ├── README.md             # 快速上手文档
 └── TECHNICAL.md          # 本文件
 
 asr_istarshine_v1/           # 客户端 skill (用户机器)
 ├── scripts/
-│   ├── download_models.py   # 客户端下载器 (session-based)
+│   ├── download_models.py   # 客户端下载器 (重试 + 续传 + 增量更新)
 │   ├── model_crypto.py      # 加密/解密工具
+│   ├── test_asr.py          # 管线自测脚本
 │   └── install.sh           # 安装脚本
 ├── models/
 │   ├── model.key            # 加密密钥 (自动生成)
+│   ├── manifest.json        # 本地 manifest (增量更新用)
 │   ├── vad/*.onnx.enc       # 加密模型
 │   ├── asr/*.onnx.enc
 │   └── punc/*.onnx.enc

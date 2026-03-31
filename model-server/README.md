@@ -1,6 +1,6 @@
-# Model Download Auth Server (v2 — Session-Based)
+# Model Download Auth Server (v0.2.0)
 
-保护模型下载源，防止未授权访问。
+保护模型下载源，防止未授权访问。支持外网/内网下载、多机器绑定、增量更新。
 
 ## 架构
 
@@ -39,7 +39,7 @@ Done
 | 凭证 | 生命周期 | 作用 | 泄露风险 |
 |------|----------|------|----------|
 | license_key | 长期 (可设过期) | 证明身份 | 不能直接下载，需配合机器指纹 |
-| session_token | 临时 (30min) | 授权本次下载 | 过期自动失效，用完即销毁 |
+| session_token | 临时 (30min, 自动续期) | 授权本次下载 | 过期自动失效，用完即销毁 |
 
 ## 安全层级
 
@@ -49,8 +49,8 @@ Done
 | 机器指纹绑定 | 防模型拷贝 | 首次使用绑定机器，换机器拒绝 |
 | 文件 manifest | 防篡改 | SHA-256 校验每个文件完整性 |
 | 客户端内存加密 | 防明文落盘 | 下载→内存→AES-256-GCM→写 .enc |
-| nginx rate limit | 防爬/防滥用 | 10次/分钟，3并发 |
-| session 自动过期 | 防遗留授权 | 30min 超时，后台线程清理 |
+| nginx rate limit | 防爬/防滥用 | 30次/分钟，5并发 |
+| session 自动过期 | 防遗留授权 | 30min 超时，活跃下载自动续期 |
 
 ## 快速部署
 
@@ -164,9 +164,10 @@ curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 
 ```
 model-server/
-├── auth_middleware.py    # 鉴权中间件（license + session + manifest）
+├── auth_middleware.py    # 鉴权中间件（license + session + manifest + webhook）
 ├── nginx.conf           # nginx 配置（auth + rate limit）
 ├── deploy.sh            # 一键部署脚本
+├── CHANGELOG.md         # 版本更新日志
 ├── README.md            # 本文件
 └── TECHNICAL.md         # 详细技术文档
 ```
@@ -174,9 +175,12 @@ model-server/
 ## 注意事项
 
 - `MODEL_ADMIN_KEY` 是管理密钥，务必保密
-- `MODEL_FILES_ROOT` 指向模型文件目录，middleware 会扫描生成 manifest
+- `MODEL_FILES_ROOT` 指向模型文件目录，middleware 会扫描生成 manifest（仅 vad/asr/punc 目录）
 - License key 只在创建时显示一次，无法找回
-- Session token 有效期 30 分钟，过期自动清理
-- `max_downloads` 现在计数的是"下载会话次数"，不是单个文件
+- Session token 有效期 30 分钟，活跃下载自动续期
+- `max_downloads` 计数的是"下载会话次数"，不是单个文件
+- `max_machines` 控制一个 key 可绑定的机器数（默认 1）
+- `webhook_url` 可选，下载完成时触发回调
 - `auth.db` 是 SQLite 数据库，定期备份
 - 日志在 `logs/` 目录，按天分割
+- 客户端支持增量更新（再次运行只下载变更文件）和断点续传
