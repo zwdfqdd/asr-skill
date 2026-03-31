@@ -9,7 +9,7 @@
 ### P1 - 体验
 - [x] test_asr.py 中文输出乱码（Windows 控制台编码问题）— 已修复
 - [x] download_models.py 失败重试机制（3 次重试，递增等待）— 已实现
-- [ ] session 续期：大文件下载超 30min 自动延长 TTL
+- [x] session 续期：每次文件验证成功自动延长 TTL，活跃下载不会超时
 
 ### P2 - 增强
 - [ ] 下载断点续传（Range 请求支持）

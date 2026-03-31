@@ -387,9 +387,16 @@ def verify_session(session_token, ip="", uri=""):
         if p.startswith("/files/"):
             file_path = p[len("/files/"):]
 
-    # Mark file as downloaded + update counters
+    # Mark file as downloaded + update counters + auto-renew session
     if file_path:
         with _db_lock:
+            # Auto-renew: extend session TTL on each successful verify
+            new_expires = time.time() + SESSION_TTL
+            conn.execute(
+                "UPDATE sessions SET expires_at = ? WHERE session_token = ? AND status = 'active'",
+                (new_expires, session_token)
+            )
+
             sf = conn.execute(
                 "SELECT id, file_size, status FROM session_files "
                 "WHERE session_token = ? AND file_path = ?",
