@@ -499,7 +499,7 @@ def complete_session(session_token):
     with _db_lock:
         conn = get_db()
         row = conn.execute(
-            "SELECT key_hash, machine_fp, files_total, files_downloaded, created_at "
+            "SELECT key_hash, machine_fp, files_total, files_done, created_at "
             "FROM sessions WHERE session_token = ? AND status = 'active'",
             (session_token,)
         ).fetchone()
