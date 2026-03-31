@@ -154,22 +154,30 @@ def hash_key(key):
 # ─── Manifest ───
 
 def build_manifest():
-    """Scan MODELS_ROOT and build file manifest with SHA-256 checksums."""
+    """Scan MODELS_ROOT and build file manifest with SHA-256 checksums.
+    Only scans whitelisted model subdirectories."""
     manifest = []
     if not MODELS_ROOT.exists():
         return manifest
 
-    for f in sorted(MODELS_ROOT.rglob("*")):
-        if not f.is_file():
+    # Only scan these subdirectories
+    MODEL_DIRS = ("vad", "asr", "punc")
+
+    for subdir in MODEL_DIRS:
+        sub_path = MODELS_ROOT / subdir
+        if not sub_path.is_dir():
             continue
-        rel = f.relative_to(MODELS_ROOT).as_posix()
-        size = f.stat().st_size
-        sha = hashlib.sha256(f.read_bytes()).hexdigest()
-        manifest.append({
-            "path": rel,
-            "size": size,
-            "sha256": sha,
-        })
+        for f in sorted(sub_path.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(MODELS_ROOT).as_posix()
+            size = f.stat().st_size
+            sha = hashlib.sha256(f.read_bytes()).hexdigest()
+            manifest.append({
+                "path": rel,
+                "size": size,
+                "sha256": sha,
+            })
     return manifest
 
 
