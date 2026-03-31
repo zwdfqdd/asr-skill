@@ -1,7 +1,9 @@
 # Models (downloaded at runtime, large binaries)
+asr_istarshine/models/
 asr_istarshine_v1/models/
 # Python cache
 __pycache__/
 *.pyc
 # License (per-user)
+asr_istarshine/license.json
 asr_istarshine_v1/license.json
