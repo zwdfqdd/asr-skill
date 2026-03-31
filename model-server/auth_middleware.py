@@ -142,6 +142,17 @@ def init_db():
         )
     """)
 
+    # ─── Schema migrations ───
+    # Add missing columns to download_log (upgrade from v1)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(download_log)").fetchall()}
+    for col, typedef in [
+        ("key_hash", "TEXT DEFAULT ''"),
+        ("session_token", "TEXT DEFAULT ''"),
+        ("file_size", "INTEGER DEFAULT 0"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE download_log ADD COLUMN {col} {typedef}")
+
     conn.commit()
     conn.close()
 
