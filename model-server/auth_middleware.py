@@ -502,6 +502,11 @@ class AuthHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.end_headers()
             else:
+                log_file = LOG_DIR / f"auth-{datetime.now().strftime('%Y-%m-%d')}.log"
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now().isoformat()}] VERIFY DENIED: "
+                            f"reason={reason} token={'yes' if session_token else 'EMPTY'} "
+                            f"uri={uri} ip={ip}\n")
                 self.send_response(403)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
